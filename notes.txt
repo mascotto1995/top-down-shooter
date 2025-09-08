@@ -1,0 +1,4 @@
+consider removing time played counter
+
+add different guns (pistol - single shot, machine gun - auto)
+
