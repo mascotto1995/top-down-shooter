@@ -8,7 +8,9 @@ local enemies = {}
 local bullets = {}
 local score = 0
 local gameTime = 0
-local playerNameInput = nil
+local enemySpawnTimer = 0
+local enemySpawnRate = 2.0
+-- local playerNameInput = nil
 
 local settings = {}
 local difficultyOptions = { "Easy", "Normal", "Hard" }
@@ -49,15 +51,17 @@ function love.load()
     initializeBullets()
 
     print( "Game loaded!" )
+
+    print( "Suit loaded:", suit ~= nil )
+    if suit then
+        print( "SUIT has update:", suit.update ~= nil )
+        print( "SUIT has draw:", suit.draw ~= nil )
+        print( "SUIT has Button:", suit.Button ~= nil )
+    end
 end
 
 function love.update( dt )
     gameTime = gameTime + dt
-    
-    -- ADD THIS LINE for SUIT:
-    if suit and suit.update then
-        suit:update(dt)
-    end
 
     if gameState == "playing" then
         updatePlayer( dt )
@@ -110,16 +114,16 @@ end
 
 function drawMenu()
     love.graphics.setColor( 1, 1, 1 )
-    love.graphics.printf( "TOP-DOWN SHOOTER", 0, screenHeight / 2 - 200, screenWidth, "center" )
-    
-    -- Simple test button
+    love.graphics.printf( "TOP-DOWN SHOOTER", 0, screenHeight / 2 - 100, screenWidth, "center" )
+
+    -- test button
     if suit.Button( "START GAME", screenWidth / 2 - 75, screenHeight / 2 - 60, 150, 40 ).hit then
         gameState = "playing"
     end
-    
-    -- Fallback text (should always show)
-    love.graphics.printf( "Click the button above or press SPACE", 0, screenHeight / 2, screenWidth, "center" )
-    love.graphics.printf( "WASD to move, Mouse to aim/shoot", 0, screenHeight / 2 + 120, screenWidth, "center" )
+
+    -- fallback text
+    love.graphics.printf( "Press SPACE to start", 0, screenHeight / 2 - 50, screenWidth, "center" )
+    love.graphics.printf( "WASD to move, Mouse to aim/shoot", 0, screenHeight / 2, screenWidth, "center" )
 end
 
 function drawPauseMenu()
@@ -182,14 +186,44 @@ end
 
 function initializeEnemies()
     enemies = {}
+    enemySpawnTimer = 0
+    enemySpawnRate = 2.0
     -- Enemy spawning will be added here
 end
 
 function updateEnemies( dt )
-    -- Enemy AI and movement goes here
+    -- Spawn enemies based on difficulty
+    enemySpawnTimer = enemySpawnTimer + dt
+    local spawnRate = getEnemySpawnRate()
+    
+    if enemySpawnTimer >= spawnRate then
+        spawnEnemy()
+        enemySpawnTimer = 0
+    end
+    
+    -- Update existing enemies
     for i = #enemies, 1, - 1 do
         local enemy = enemies[i]
-        -- update enemy logic here
+        
+        -- Move enemy toward player
+        local dx = player.x - enemy.x
+        local dy = player.y - enemy.y
+        local distance = math.sqrt( dx * dx + dy * dy )
+        
+        if distance > 0 then
+            -- Normalize direction and apply speed
+            local moveX = ( dx / distance ) * enemy.speed * dt
+            local moveY = ( dy / distance ) * enemy.speed * dt
+            
+            enemy.x = enemy.x + moveX
+            enemy.y = enemy.y + moveY
+        end
+        
+        -- Remove enemies that are too far off screen (cleanup)
+        if enemy.x < - 100 or enemy.x > screenWidth + 100 or 
+           enemy.y < - 100 or enemy.y > screenHeight + 100 then
+            table.remove( enemies, i )
+        end
     end
 end
 
@@ -198,6 +232,69 @@ function drawEnemies()
     for _, enemy in ipairs( enemies ) do
         love.graphics.rectangle( "fill", enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height )
     end
+end
+
+function spawnEnemy()
+    local enemy = {
+        width = 24,
+        height = 24,
+        speed = getEnemySpeed(),
+        health = getEnemyHealth(),
+        maxHealth = getEnemyHealth()
+    }
+    
+    -- Spawn enemy off-screen in a random direction
+    local side = math.random( 1, 4 )
+    if side == 1 then -- Top
+        enemy.x = math.random( 0, screenWidth )
+        enemy.y = - enemy.height
+    elseif side == 2 then -- Right
+        enemy.x = screenWidth + enemy.width
+        enemy.y = math.random( 0, screenHeight )
+    elseif side == 3 then -- Bottom
+        enemy.x = math.random( 0, screenWidth )
+        enemy.y = screenHeight + enemy.height
+    else -- Left
+        enemy.x = - enemy.width
+        enemy.y = math.random( 0, screenHeight )
+    end
+    
+    table.insert( enemies, enemy )
+end
+
+function getEnemySpawnRate()
+    -- Spawn rate gets faster over time and with difficulty
+    local baseRate = 2.0
+    local timeMultiplier = math.max( 0.3, 1.0 - ( gameTime * 0.02 ) ) -- Gets faster over time
+    local difficultyMultiplier = 1.0
+    
+    if settings.difficulty == "Easy" then
+        difficultyMultiplier = 1.5
+    elseif settings.difficulty == "Hard" then
+        difficultyMultiplier = 0.6
+    end
+    
+    return baseRate * timeMultiplier * difficultyMultiplier
+end
+
+function getEnemySpeed()
+    local baseSpeed = 80
+    if settings.difficulty == "Easy" then
+        return baseSpeed * 0.7
+    elseif settings.difficulty == "Hard" then
+        return baseSpeed * 1.4
+    end
+    return baseSpeed
+end
+
+function getEnemyHealth()
+    local baseHealth = 1
+    if settings.difficulty == "Easy" then
+        return baseHealth
+    elseif settings.difficulty == "Hard" then
+        return baseHealth * 2
+    end
+    return baseHealth
 end
 
 -- Bullet functionality
@@ -282,13 +379,13 @@ end
 
 -- Input handling
 function love.keypressed( key )
-    -- Let SUIT handle input first (if it exists and has the method)
+    -- Let SUIT handle input first (safely)
     if suit and suit.keypressed then
         suit:keypressed( key )
     end
     
-    -- Game controls (work with or without SUIT) - REMOVE the "and not suit" part
-    if key == "space" and gameState == "menu" then  -- REMOVED: and not suit
+    -- Add SPACE key support
+    if key == "space" and gameState == "menu" then
         gameState = "playing"
     elseif key == "p" then
         if gameState == "playing" then
@@ -296,18 +393,6 @@ function love.keypressed( key )
         elseif gameState == "paused" then
             gameState = "playing"
         end
-    elseif key == "s" and ( gameState == "menu" or gameState == "paused" ) then  -- REMOVED: and not suit
-        gameState = "settings"
-    elseif key == "r" and gameState == "gameover" then  -- REMOVED: and not suit
-        -- Restart game
-        score = 0
-        gameTime = 0
-        player.health = player.maxHealth
-        player.x = screenWidth / 2
-        player.y = screenHeight / 2
-        enemies = {}
-        bullets = {}
-        gameState = "playing"
     elseif key == "escape" then
         love.event.quit()
     end
