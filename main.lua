@@ -20,6 +20,37 @@ local currentDifficultIndex = 2
 local screenWidth, screenHeight
 
 function love.load()
+    sounds = {}
+    images = {}
+
+    -- Create multiple shoot sound sources for rapid fire
+    sounds.shoot = {}
+    for i = 1, 5 do -- Create 5 copies
+        sounds.shoot[i] = love.audio.newSource( "assets/sounds/9mm-pistol.mp3", "static" )
+        sounds.shoot[i]:setVolume( 0.3 )
+    end
+    sounds.shootIndex = 1 -- Track which one to use next
+
+    -- Load sound effects
+    sounds.enemyHit = love.audio.newSource( "assets/sounds/enemy-hit.mp3", "static" )
+    sounds.enemyDeath = love.audio.newSource( "assets/sounds/enemy-hit.mp3", "static" )
+    sounds.playerHurt = love.audio.newSource( "assets/sounds/player-hurt.mp3", "static" )
+    sounds.background = love.audio.newSource( "assets/sounds/night-drive.mp3", "static" )
+
+    -- Set volumes
+    sounds.enemyHit:setVolume( 0.4 )
+    sounds.enemyDeath:setVolume( 0.5 )
+    sounds.playerHurt:setVolume( 0.6 )
+    sounds.background:setVolume( 0.2 )
+    sounds.background:setLooping( true )
+
+    -- Load images
+
+    -- Start background music
+    love.audio.play( sounds.background )
+
+    print( "Assets loaded!" )
+
     -- Get screen dimensions
     screenWidth = love.graphics.getWidth()
     screenHeight = love.graphics.getHeight()
@@ -88,6 +119,8 @@ function love.draw()
         drawGame()
     elseif gameState == "menu" then
         drawMenu()
+    elseif gameState == "settings" then
+        drawSettings()
     elseif gameState == "paused" then
         drawGame() -- draw game behind pause menu
         drawPauseMenu()
@@ -100,8 +133,10 @@ function love.draw()
         suit:draw()
     end
 
-    love.graphics.setColor( 1, 1, 1 )
-    love.graphics.print( "FPS: " .. love.timer.getFPS(), 10, 10 )
+    if settings.showFPS then
+        love.graphics.setColor( 1, 1, 1 )
+        love.graphics.print( "FPS: " .. love.timer.getFPS(), 10, 10 )
+    end
 end
 
 function drawGame()
@@ -112,18 +147,67 @@ function drawGame()
     drawUI()
 end
 
+function updateVolume()
+    if not sounds then return end
+
+    local masterVolume = settings.volume
+
+    -- Update shoot sounds
+    for i = 1, #sounds.shoot do
+        sounds.shoot[i]:setVolume( 0.3 * masterVolume )
+    end
+
+    sounds.enemyHit:setVolume( 0.4 * masterVolume )
+    sounds.enemyDeath:setVolume( 0.5 * masterVolume )
+    sounds.playerHurt:setVolume( 0.6 * masterVolume )
+    sounds.background:setVolume( 0.2 * masterVolume )
+end
+
+function drawSettings()
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf("SETTINGS", 0, 50, screenWidth, "center")
+    
+    local startY = 120
+    local spacing = 60
+    
+    -- Volume control with buttons
+    love.graphics.print("Volume: " .. math.floor(settings.volume * 100) .. "%", screenWidth/2 - 100, startY)
+    if suit.Button("-", {id = "volDown"}, screenWidth/2 - 100, startY + 25, 30, 30).hit then
+        settings.volume = math.max(0, settings.volume - 0.1)
+        updateVolume()
+    end
+    if suit.Button("+", {id = "volUp"}, screenWidth/2 - 60, startY + 25, 30, 30).hit then
+        settings.volume = math.min(1, settings.volume + 0.1)
+        updateVolume()
+    end
+    
+    -- Rest of settings...
+    
+    -- Back button
+    if suit.Button("BACK TO MENU", {id = "backBtn"}, screenWidth/2 - 75, startY + spacing * 3 + 40, 150, 40).hit then
+        gameState = "menu"
+    end
+end
+
 function drawMenu()
     love.graphics.setColor( 1, 1, 1 )
     love.graphics.printf( "TOP-DOWN SHOOTER", 0, screenHeight / 2 - 100, screenWidth, "center" )
 
     -- test button
-    if suit.Button( "START GAME", screenWidth / 2 - 75, screenHeight / 2 - 60, 150, 40 ).hit then
+    if suit.Button( "START GAME", screenWidth / 2 - 75, screenHeight / 2 - 80, 150, 40 ).hit then
         gameState = "playing"
     end
 
-    -- fallback text
-    love.graphics.printf( "Press SPACE to start", 0, screenHeight / 2 - 50, screenWidth, "center" )
-    love.graphics.printf( "WASD to move, Mouse to aim/shoot", 0, screenHeight / 2, screenWidth, "center" )
+    -- Settings button
+    if suit.Button( "SETTINGS", screenWidth / 2 - 75, screenHeight / 2 - 30, 150, 40 ).hit then
+        gameState = "settings"
+    end
+
+    if suit.Button( "QUIT", screenWidth / 2 - 75, screenHeight / 2 + 20, 150, 40 ).hit then
+        love.event.quit()
+    end
+
+    love.graphics.printf( "WASD to move, Mouse to aim/shoot", 0, screenHeight / 2 + 120, screenWidth, "center" )
 end
 
 function drawPauseMenu()
@@ -231,6 +315,26 @@ function drawEnemies()
     love.graphics.setColor( 0.8, 0.2, 0.2 ) -- red
     for _, enemy in ipairs( enemies ) do
         love.graphics.rectangle( "fill", enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height )
+
+        -- Draw health bar for enemies with more than 1 HP
+        if enemy.maxHealth > 1 then
+            local barWidth = enemy.width
+            local barHeight = 4
+            local barX = enemy.x - barWidth / 2
+            local barY = enemy.y - enemy.height / 2 - 8
+
+            -- Background
+            love.graphics.setColor( 0.3, 0.3, 0.3 )
+            love.graphics.rectangle( "fill", barX, barY, barWidth, barHeight )
+
+            -- Health
+            love.graphics.setColor( 0.8, 0.2, 0.2 )
+            local healthPercent = enemy.health / enemy.maxHealth
+            love.graphics.rectangle( "fill", barX, barY, barWidth * healthPercent, barHeight )
+
+            -- Reset color for next enemy
+            love.graphics.setColor( 0.8, 0.2, 0.2 )
+        end
     end
 end
 
@@ -342,12 +446,71 @@ function createBullet( x, y, targetX, targetY )
         vy = vy,
         radius = 3
     } )
+
+    -- Play 9MM pistol sound
+    love.audio.play( sounds.shoot[sounds.shootIndex] )
+    sounds.shootIndex = sounds.shootIndex + 1
+    if sounds.shootIndex > #sounds.shoot then
+        sounds.shootIndex = 1
+    end
+end
+
+-- check collision helper function
+function checkCollision( x1, y1, w1, h1, x2, y2, w2, h2 )
+    return x1 < x2 + w2 and x2 < x1 + w1 and y1 < y2 + h2 and y2 < y1 + h1
+
 end
 
 -- Collision detection
 function updateCollisions()
-    -- Bullet enemy collisions here
-    -- Player enemy collisions here
+    -- Bullet enemy collisions
+    for i = #bullets, 1, - 1 do
+        local bullet = bullets[i]
+        for j = #enemies, 1, - 1 do
+            local enemy = enemies[j]
+
+            -- check if bullet hits enemy
+            if checkCollision( bullet.x, bullet.y, bullet.radius * 2, bullet.radius * 2, enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height ) then
+
+                -- Damage enemy
+                enemy.health = enemy.health - 1
+
+                -- Remove bullet after collision
+                table.remove( bullets, i )
+
+                -- Remove enemy if dead
+                if enemy.health <= 0 then
+                    table.remove( enemies, j )
+                    score = score + 10 -- points for killing enemy
+
+                    -- Play death sound
+                    love.audio.play( sounds.enemyDeath )
+                else
+                    -- Play hit sound
+                    love.audio.play( sounds.enemyHit )
+                end
+
+                break -- bullets only hit one enemy
+            end
+        end
+    end
+
+    -- Enemy player collisions
+    for i = #enemies, 1, - 1 do
+        local enemy = enemies[i]
+
+        if checkCollision( player.x - player.width / 2, player.y - player.height / 2, player.width, player.height, enemy.x - enemy.width / 2, enemy.y - enemy.height / 2, enemy.width, enemy.height ) then
+
+            -- Damage player
+            player.health = player.health - 10
+
+            -- Play hurt sound
+            love.audio.play( sounds.playerHurt )
+
+            -- Remove enemy
+            table.remove( enemies, i )
+        end
+    end
 end
 
 -- UI functions
