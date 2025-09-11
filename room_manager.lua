@@ -179,3 +179,125 @@ function RoomManager.spawnRoomEnemies(room, template)
         table.insert(room.enemies, enemy)
     end
 end
+
+function RoomManager.generateAdjacentRooms(centerX, centerY)
+    local directions = {
+        {0, -1}, -- North
+        {0, 1}, -- South
+        {1, 0}, -- East
+        {-1, 0} -- West
+    }
+
+    for _, dir in ipairs(directions) do
+        local newX, newY = centerX + dir[1], centerY + dir[2]
+
+        if not RoomManager.roomExists(newX, newY) then
+            local newRoom = RoomManager.generateRoom(newX, newY, "normal")
+
+            if not roomGrid[newX] then
+                roomGrid[newX] = {}
+            end
+            roomGrid[newX][newY] = newRoom
+        end
+    end
+end
+
+function RoomManager.roomExists(gridX, gridY)
+    return roomGrid[gridX] and roomGrid[gridX][gridY] ~= nil
+end
+
+function RoomManager.getCurrentRoom()
+    return currentRoom
+end
+
+function RoomManager.checkRoomTransition(playerX, playerY)
+    if roomTransitioning then return end
+
+    for _, door in ipairs(currentRoom.doors) do
+        if playerX >= door.x and playerX <= door.x + door.width and
+        playerY >= door.y and playerY <= door.y + door.height then
+
+            local newRoomX, newRoomY = playerRoomX, playerRoomX, playerRoomY
+
+            if door.direction == "north" then
+                newRoomY = newRoomY - 1
+            elseif door.direction == "south" then
+                newRoomY = newRoomY + 1
+            elseif door.direction == "east" then
+                newRoomX = newRoomX + 1
+            elseif door.direction == "west" then
+                newRoomX = newRoomX - 1
+            end
+
+            function RoomManager.transitionToRoom(newRoomX, newRoomY, fromDoor)
+                -- Ensure the target room exists
+                if not RoomManager.roomExists(newRoomX, newRoomY, fromDoor) then
+                    local newRoom = RoomManager.roomExists(newRoomX, newRoomY) then
+                        local newRoom = RoomManager.generateRoom(newRoomX, newRoomY, "normal")
+                        if not roomGrid[newRoomX] then
+                            roomGrid[newRoomX] then
+                                roomGrid[newRoomX] = {}
+                            end
+                            roomGrid[newRoomX][newRoomY] = newRoom
+
+                            -- Generate rooms adjacent to this new room
+                            RoomManager.generateAdjacentRooms(newRoomX, newRoomY)
+                        end
+
+                        -- Start transition
+                        roomTransitioning = true
+                        transitionTimer = 0
+
+                        -- Update room state
+                        playerRoomX, playerRoomY = newRoomX, newRoomY
+                        currentRoom = roomGrid[newRoomX][newRoomY]
+
+                        -- Position player at appropriate spawn point
+                        if fromDoor.direction == "north" then
+                            player.x, player.y = fromDoor.targetX, currentRoom.pixelHeight - 50
+                        elseif fromDoor.direction == "south" then
+                            player.x, player.y = fromDoor.targetX, 50
+                        elseif fromDoor.direction == "east" then
+                            player.x, player.y = fromDoor.targetY
+                        elseif fromDoor.direction == "west" then
+                            player.x, player.y = currentRoom.pixelWidth - 50, fromDoor.targetY
+                        end
+
+                        -- Clear current enemies and bullets when transitioning
+                        enemies = {}
+                        bullets = {}
+
+                        -- Load room enemies into global enemies array
+                        for _, roomEnemy in ipairs(currentRoom.enemies) do
+                            table.insert(enemies, roomEnemy)
+                        end
+
+                        print("Transitioned to room", newRoomX, newRoomY, "Size:", currentRoom.width, "x", currentRoom.height)
+                    end
+
+                    function RoomManager.update(dt)
+                        if roomTransitioning then
+                            transitionTimer = transitionTimer + dt
+                            if transitionTimer >= transitionDuration then
+                                roomTransitioning = false
+                                transitionTimer = 0
+                            end
+                        end
+
+                        -- Check for room transitions
+                        RoomManager.checkRoomTransition(player.x, player.y)
+
+                        -- Check if room is cleared
+                        if not currentRoom.cleared and #currentRoom.enemies == 0 and #enemies == 0 then
+                            currentRoom.cleared = true
+                            print("Room cleared!")
+                        end
+                    end
+
+                    function RoomManager.draw()
+                        if not currentRoom then return end
+
+                        -- Draw foor
+                        love.graphics.setColor(0.3, 0.3, 0.35)
+                        love.graphics.rectangle("fill", 0, 0, currentRoom.pixelWidth, currentRoom.pixelHeight)
+                        
